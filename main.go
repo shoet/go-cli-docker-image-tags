@@ -3,9 +3,11 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"go.uber.org/zap"
+	"io"
 	"os"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 // curl -X GET 'https://registry.hub.docker.com/v2/repositories/{namespace}/{repository}/tags'
@@ -20,8 +22,8 @@ func main() {
 	}
 	defer fp.Close()
 
-	var response ListTagsResponse
-	if err := json.NewDecoder(fp).Decode(&response); err != nil {
+	response, err := ReadResult(fp)
+	if err != nil {
 		panic(err)
 	}
 
@@ -31,6 +33,14 @@ func main() {
 	}
 
 	logger.Info("response", zap.Any("response", response))
+}
+
+func ReadResult(r io.Reader) (ListTagsResponse, error) {
+	var response ListTagsResponse
+	if err := json.NewDecoder(r).Decode(&response); err != nil {
+		return ListTagsResponse{}, err
+	}
+	return response, nil
 }
 
 type ListTagsResponse struct {
