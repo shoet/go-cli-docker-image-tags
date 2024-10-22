@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io"
+	"net/http"
 	"os"
 	"time"
 
@@ -22,7 +22,10 @@ func main() {
 	}
 	defer fp.Close()
 
-	response, err := ReadResult(fp)
+	httpClient := &http.Client{}
+	api := NewDockerHubAPI("https://registry.hub.docker.com", httpClient)
+
+	response, err := api.ListRepositoryTags("awsguru", "aws-lambda-adapter")
 	if err != nil {
 		panic(err)
 	}
@@ -35,12 +38,35 @@ func main() {
 	logger.Info("response", zap.Any("response", response))
 }
 
-func ReadResult(r io.Reader) (ListTagsResponse, error) {
-	var response ListTagsResponse
-	if err := json.NewDecoder(r).Decode(&response); err != nil {
-		return ListTagsResponse{}, err
+type HTTPClient interface {
+	Do(req *http.Request) (*http.Response, error)
+}
+
+type DockerHubAPI struct {
+	HTTPClient HTTPClient
+	BaseURL    string
+}
+
+func NewDockerHubAPI(baseURL string, httpClient HTTPClient) *DockerHubAPI {
+	return &DockerHubAPI{
+		BaseURL:    baseURL,
+		HTTPClient: httpClient,
 	}
-	return response, nil
+}
+
+func (api *DockerHubAPI) ListRepositoryTags(namespace, repository string) (*ListTagsResponse, error) {
+	path := fmt.Sprintf("/v2/repositories/%s/%s/tags", namespace, repository)
+	request, err := http.NewRequest(http.MethodGet, api.BaseURL+path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	defer request.Body.Close()
+	var response ListTagsResponse
+
+	if err := json.NewDecoder(request.Body).Decode(&response); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	return &response, nil
 }
 
 type ListTagsResponse struct {
