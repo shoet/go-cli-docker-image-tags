@@ -38,6 +38,7 @@ func main() {
 		}
 		if errors.Is(err, LimitExceeded) {
 			fmt.Printf("limit exceeded. limit is %d.\n", limit)
+			Output(response)
 			os.Exit(0)
 		}
 		panic(err)
@@ -112,7 +113,7 @@ func (api *DockerHubAPI) ListRepositoryTags(namespace, repository string, limit 
 	}
 	if response.Next != "" {
 		// limit 指定したうえで、次のページがある場合は LimitExceeded とする
-		return nil, LimitExceeded
+		return &response, LimitExceeded
 	}
 	return &response, nil
 }

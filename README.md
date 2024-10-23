@@ -7,13 +7,14 @@ Docker イメージのタグを取得する CLI ツール
 ### バイナリの生成
 
 ```bash
-$ go build -o docker-image-tags
+$ make build
+$ ls -l ./.bin/docker-image-tags
 ```
 
 ### イメージのタグを取得
 
 ```bash
-$ ./docker-image-tags --image golang
+$ ./.bin/docker-image-tags <namespace> <repository>
 1.16.3
 1.16.2
 ```
