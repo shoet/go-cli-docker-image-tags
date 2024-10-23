@@ -12,8 +12,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// curl -X GET 'https://registry.hub.docker.com/v2/repositories/{namespace}/{repository}/tags'
-
 func main() {
 	args := os.Args
 	namespace, repository, err := ParseArgs(args)
@@ -21,6 +19,8 @@ func main() {
 		fmt.Println(Usage())
 		os.Exit(1)
 	}
+
+	limit := 100
 
 	logger, err := zap.NewDevelopment()
 	if err != nil {
@@ -30,11 +30,15 @@ func main() {
 	httpClient := &http.Client{}
 	api := NewDockerHubAPI(logger, "https://registry.hub.docker.com", httpClient)
 
-	response, err := api.ListRepositoryTags(namespace, repository)
+	response, err := api.ListRepositoryTags(namespace, repository, limit)
 	if err != nil {
 		if errors.Is(err, RepositoryNotFound) {
 			fmt.Println("repository not found")
 			os.Exit(1)
+		}
+		if errors.Is(err, LimitExceeded) {
+			fmt.Printf("limit exceeded. limit is %d.\n", limit)
+			os.Exit(0)
 		}
 		panic(err)
 	}
@@ -63,6 +67,7 @@ func Output(response *ListTagsResponse) {
 }
 
 var RepositoryNotFound = fmt.Errorf("repository not found")
+var LimitExceeded = fmt.Errorf("limit exceeded")
 
 type HTTPClient interface {
 	Do(req *http.Request) (*http.Response, error)
@@ -82,8 +87,8 @@ func NewDockerHubAPI(logger *zap.Logger, baseURL string, httpClient HTTPClient) 
 	}
 }
 
-func (api *DockerHubAPI) ListRepositoryTags(namespace, repository string) (*ListTagsResponse, error) {
-	url := fmt.Sprintf("%s/v2/repositories/%s/%s/tags", api.BaseURL, namespace, repository)
+func (api *DockerHubAPI) ListRepositoryTags(namespace, repository string, limit int) (*ListTagsResponse, error) {
+	url := fmt.Sprintf("%s/v2/repositories/%s/%s/tags?page_size=%d", api.BaseURL, namespace, repository, limit)
 	request, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -104,6 +109,10 @@ func (api *DockerHubAPI) ListRepositoryTags(namespace, repository string) (*List
 	var response ListTagsResponse
 	if err := json.NewDecoder(res.Body).Decode(&response); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	if response.Next != "" {
+		// limit 指定したうえで、次のページがある場合は LimitExceeded とする
+		return nil, LimitExceeded
 	}
 	return &response, nil
 }
