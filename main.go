@@ -38,9 +38,31 @@ func main() {
 		}
 		panic(err)
 	}
-
-	logger.Info("response", zap.Any("response", response))
+	Output(response)
 }
+
+func Usage() string {
+	return "Usage: $0 <namespace>/<repository>"
+}
+
+func ParseArgs(args []string) (string, string, error) {
+	if len(args) != 2 {
+		return "", "", fmt.Errorf("invalid arguments")
+	}
+	a := strings.Split(args[1], "/")
+	if len(a) != 2 {
+		return "", "", fmt.Errorf("invalid arguments")
+	}
+	return a[0], a[1], nil
+}
+
+func Output(response *ListTagsResponse) {
+	for _, result := range response.Results {
+		fmt.Println(result.Name)
+	}
+}
+
+var RepositoryNotFound = fmt.Errorf("repository not found")
 
 type HTTPClient interface {
 	Do(req *http.Request) (*http.Response, error)
@@ -59,23 +81,6 @@ func NewDockerHubAPI(logger *zap.Logger, baseURL string, httpClient HTTPClient) 
 		HTTPClient: httpClient,
 	}
 }
-
-func Usage() string {
-	return "Usage: $0 <namespace>/<repository>"
-}
-
-func ParseArgs(args []string) (string, string, error) {
-	if len(args) != 2 {
-		return "", "", fmt.Errorf("invalid arguments")
-	}
-	a := strings.Split(args[1], "/")
-	if len(a) != 2 {
-		return "", "", fmt.Errorf("invalid arguments")
-	}
-	return a[0], a[1], nil
-}
-
-var RepositoryNotFound = fmt.Errorf("repository not found")
 
 func (api *DockerHubAPI) ListRepositoryTags(namespace, repository string) (*ListTagsResponse, error) {
 	url := fmt.Sprintf("%s/v2/repositories/%s/%s/tags", api.BaseURL, namespace, repository)
