@@ -2,9 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -13,25 +15,27 @@ import (
 // curl -X GET 'https://registry.hub.docker.com/v2/repositories/{namespace}/{repository}/tags'
 
 func main() {
-	// TODO
-	fmt.Println("Hello, World!")
-
-	fp, err := os.Open("test.json")
+	args := os.Args
+	namespace, repository, err := ParseArgs(args)
 	if err != nil {
-		panic(err)
-	}
-	defer fp.Close()
-
-	httpClient := &http.Client{}
-	api := NewDockerHubAPI("https://registry.hub.docker.com", httpClient)
-
-	response, err := api.ListRepositoryTags("awsguru", "aws-lambda-adapter")
-	if err != nil {
-		panic(err)
+		fmt.Println(Usage())
+		os.Exit(1)
 	}
 
 	logger, err := zap.NewDevelopment()
 	if err != nil {
+		panic(err)
+	}
+
+	httpClient := &http.Client{}
+	api := NewDockerHubAPI(logger, "https://registry.hub.docker.com", httpClient)
+
+	response, err := api.ListRepositoryTags(namespace, repository)
+	if err != nil {
+		if errors.Is(err, RepositoryNotFound) {
+			fmt.Println("repository not found")
+			os.Exit(1)
+		}
 		panic(err)
 	}
 
@@ -43,27 +47,57 @@ type HTTPClient interface {
 }
 
 type DockerHubAPI struct {
+	logger     *zap.Logger
 	HTTPClient HTTPClient
 	BaseURL    string
 }
 
-func NewDockerHubAPI(baseURL string, httpClient HTTPClient) *DockerHubAPI {
+func NewDockerHubAPI(logger *zap.Logger, baseURL string, httpClient HTTPClient) *DockerHubAPI {
 	return &DockerHubAPI{
+		logger:     logger,
 		BaseURL:    baseURL,
 		HTTPClient: httpClient,
 	}
 }
 
+func Usage() string {
+	return "Usage: $0 <namespace>/<repository>"
+}
+
+func ParseArgs(args []string) (string, string, error) {
+	if len(args) != 2 {
+		return "", "", fmt.Errorf("invalid arguments")
+	}
+	a := strings.Split(args[1], "/")
+	if len(a) != 2 {
+		return "", "", fmt.Errorf("invalid arguments")
+	}
+	return a[0], a[1], nil
+}
+
+var RepositoryNotFound = fmt.Errorf("repository not found")
+
 func (api *DockerHubAPI) ListRepositoryTags(namespace, repository string) (*ListTagsResponse, error) {
-	path := fmt.Sprintf("/v2/repositories/%s/%s/tags", namespace, repository)
-	request, err := http.NewRequest(http.MethodGet, api.BaseURL+path, nil)
+	url := fmt.Sprintf("%s/v2/repositories/%s/%s/tags", api.BaseURL, namespace, repository)
+	request, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-	defer request.Body.Close()
-	var response ListTagsResponse
 
-	if err := json.NewDecoder(request.Body).Decode(&response); err != nil {
+	res, err := api.HTTPClient.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+
+	if res.StatusCode == http.StatusNotFound {
+		return nil, RepositoryNotFound
+	}
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status code: %d", res.StatusCode)
+	}
+
+	var response ListTagsResponse
+	if err := json.NewDecoder(res.Body).Decode(&response); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 	return &response, nil
